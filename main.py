@@ -182,20 +182,36 @@ def process_matches(input_file, history_output_file, final_elo_output_file, map_
         reader = csv.DictReader(csvfile)
         matches = sorted(reader, key=lambda row: datetime.strptime(row['date'], "%Y-%m-%d"))
 
+        player_cnt = defaultdict()
+
         print("History of past matches:")
         for row in matches:
             date = row['date']
             winners = [p.strip() for p in row['winners'].split(',')]
             losers = [p.strip() for p in row['losers'].split(',')]
             result = float(row['result'])
-            match_map = row['match_map']
 
             if result != -1:
                 update_elo(winners, losers, result, date)
 
+        for row in matches[::-1]:
+
+            winners = [p.strip() for p in row['winners'].split(',')]
+            losers = [p.strip() for p in row['losers'].split(',')]
+            match_map = row['match_map']
+
             # Count map plays for each player in this match
             for player in winners + losers:
-                player_map_counts[player][match_map] += 1
+
+                if player not in player_cnt:
+                    player_cnt[player] = 0
+
+                to_add = 1
+                if player_cnt[player] < 5:
+                    to_add = pow(2, 5 - player_cnt[player])
+
+                player_map_counts[player][match_map] += to_add
+                player_cnt[player] += 1
 
     # Write elo history
     with open(history_output_file, 'w', newline='') as csvfile:
@@ -278,17 +294,25 @@ def graph_func():
 
     plt.savefig('elo_evolution_steps.png', bbox_inches='tight')
 
+
 def sort_maps_by_selected_players(map_stats_file, players_file, maps_file):
     # Load selected players into a set
     with open(players_file, 'r') as f:
         selected_players = {line.strip() for line in f if line.strip()}
 
-    # Load all maps from maps.txt
-    with open(maps_file, 'r') as f:
-        all_maps = [line.strip() for line in f if line.strip()]
+    # Load maps and their types from maps.csv
+    map_types = {}
+    with open(maps_file, 'r', newline='') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            map_types[row['map']] = row['type']
 
-    # Initialize counts for all maps
-    map_counts = {map_name: 0 for map_name in all_maps}
+    # Initialize counts for all maps and types
+    map_counts = {map_name: 0 for map_name in map_types.keys()}
+    type_counts = {}
+    for map_type in map_types.values():
+        if map_type not in type_counts:
+            type_counts[map_type] = 0
 
     # Read map stats file and accumulate counts
     with open(map_stats_file, newline='') as csvfile:
@@ -300,25 +324,25 @@ def sort_maps_by_selected_players(map_stats_file, players_file, maps_file):
 
             if player in selected_players and map_name in map_counts:
                 map_counts[map_name] += count
+                # Add to the corresponding type count
+                map_type = map_types[map_name]
+                type_counts[map_type] += count
 
     # Sort maps by total count (ascending)
     sorted_maps = sorted(map_counts.items(), key=lambda x: x[1])
 
-    # Count generation vs non-generation maps
-    generation_total = sum(count for map_name, count in sorted_maps if map_name.endswith("Generation"))
-    other_total = sum(count for map_name, count in sorted_maps if not map_name.endswith("Generation"))
+    print("How many times these players played on each type of map:")
 
-    print("How many times these players played on each map:")
+    # Print type summaries
+    for map_type, total_count in sorted(type_counts.items()):
+        print(f"{map_type}: {total_count}")
+    print()
 
-    # Print the generation summary
-    print(f"Random generation: {generation_total}")
-    print(f"Player made: {other_total}\n")
-
-    # Print the sorted list of maps
+    # Print the sorted list of individual maps
     for map_name, total_count in sorted_maps:
-        print(f"{map_name}: {total_count}")
+        map_type = map_types[map_name]
+        print(f"{map_name} ({map_type}): {total_count}")
 
-    return sorted_maps
 
 if __name__ == "__main__":
 
@@ -337,4 +361,4 @@ if __name__ == "__main__":
     graph_func()
 
     print("")
-    sort_maps_by_selected_players(map_stats_output_file, 'players.txt', 'maps.txt')
+    sort_maps_by_selected_players(map_stats_output_file, 'players.txt', 'maps.csv')
