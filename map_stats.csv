@@ -1,28 +1,32 @@
 player,map,count
-WarriorOfCadia40,Pompeii,33
-WarriorOfCadia40,Terratonic,18
-WarriorOfCadia40,Thermopylae,9
-WarriorOfCadia40,Vanilla,7
-WarriorOfCadia40,Highland Divide,3
-Ferrer,Pompeii,33
-Ferrer,Terratonic,18
-Ferrer,Thermopylae,9
-Ferrer,Vanilla,4
-Ferrer,Highland Divide,2
-HellstormBishop,Pompeii,33
-HellstormBishop,Thermopylae,18
-HellstormBishop,Vanilla,11
-HellstormBishop,Highland Divide,5
+Bardun,Vanilla,36
+Bardun,Pompeii,17
+Bardun,Terratonic,8
+Bardun,Highland Divide,3
+HellstormBishop,Vanilla,39
+HellstormBishop,Pompeii,17
+HellstormBishop,Thermopylae,9
+HellstormBishop,Highland Divide,3
 HellstormBishop,Terratonic,2
-ArtPed,Pompeii,33
-ArtPed,Terratonic,18
-ArtPed,Thermopylae,9
-ArtPed,Vanilla,7
-ArtPed,Highland Divide,3
-Bardun,Pompeii,34
-Bardun,Terratonic,16
-Bardun,Vanilla,8
-Bardun,Highland Divide,5
+Sakamoto,Vanilla,32
+WarriorOfCadia40,Vanilla,37
+WarriorOfCadia40,Pompeii,17
+WarriorOfCadia40,Terratonic,10
+WarriorOfCadia40,Thermopylae,5
+WarriorOfCadia40,Highland Divide,2
+Ferrer,Vanilla,34
+Ferrer,Pompeii,17
+Ferrer,Terratonic,10
+Ferrer,Thermopylae,5
+Ferrer,Highland Divide,1
+Xande,Vanilla,40
+Xande,Thermopylae,16
+Xande,Terratonic,6
+ArtPed,Vanilla,37
+ArtPed,Pompeii,17
+ArtPed,Terratonic,10
+ArtPed,Thermopylae,5
+ArtPed,Highland Divide,2
 Samuk,Terratonic,32
 Samuk,Thermopylae,20
 Samuk,Vanilla,8
@@ -30,9 +34,6 @@ Samuk,Pompeii,2
 Samuk,Highland Divide,1
 ColdInformer,Terratonic,32
 ColdInformer,Highland Divide,16
-Xande,Thermopylae,32
-Xande,Vanilla,16
-Xande,Terratonic,12
 Near,Highland Divide,32
 Lasanha,Thermopylae,32
 Vitor,Thermopylae,32
