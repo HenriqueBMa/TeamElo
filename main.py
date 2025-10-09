@@ -1,4 +1,5 @@
 import csv
+import math
 from datetime import datetime
 from collections import defaultdict
 from itertools import combinations
@@ -162,15 +163,25 @@ def update_elo(winners, losers, result, match_date):
     print(
         f"{winners_str} ({int(winners_elo)}) ({'+' + str(int(per_player_win_change))})  vs  {losers_str} ({int(losers_elo)}) ({'-' + str(int(per_player_lose_change))})")
 
-    # Update winners
+    # Update winners with decay based on match count
     for player in winners:
-        player_elo[player] += per_player_win_change
-        player_history[player].append((match_date, player_elo[player]))
+        matches_played = player_cnt.get(player, 0)
+        decay_multiplier = math.exp(-matches_played / 3)
+        actual_change = per_player_win_change + (1 * per_player_win_change * decay_multiplier)
 
-    # Update losers
-    for player in losers:
-        player_elo[player] -= per_player_lose_change
+        player_elo[player] += actual_change
         player_history[player].append((match_date, player_elo[player]))
+        player_cnt[player] = matches_played + 1
+
+    # Update losers with decay based on match count
+    for player in losers:
+        matches_played = player_cnt.get(player, 0)
+        decay_multiplier = math.exp(-matches_played / 3)
+        actual_change = per_player_lose_change + (1 * per_player_lose_change * decay_multiplier)
+
+        player_elo[player] -= actual_change
+        player_history[player].append((match_date, player_elo[player]))
+        player_cnt[player] = matches_played + 1
 
 
 # Main function to process matches
@@ -182,7 +193,9 @@ def process_matches(input_file, history_output_file, final_elo_output_file, map_
         reader = csv.DictReader(csvfile)
         matches = sorted(reader, key=lambda row: datetime.strptime(row['date'], "%Y-%m-%d"))
 
-        player_cnt = defaultdict()
+        # Initialize player_cnt at the function level so update_elo can access it
+        global player_cnt
+        player_cnt = defaultdict(int)
 
         print("History of past matches:")
         for row in matches:
@@ -251,6 +264,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import itertools
 
+
 def graph_func():
     # Load data
     df = pd.read_csv('elo_history.csv', parse_dates=['date'])
@@ -260,6 +274,84 @@ def graph_func():
     unique_dates = df['date'].unique()
     date_index_map = {date: i for i, date in enumerate(unique_dates)}
     df['x'] = df['date'].map(date_index_map)
+
+    # Calculate mean Elo for each date (from all players who have played up to that point)
+    mean_elo_by_date = []
+    mean_x = []
+
+    for date in unique_dates:
+        # Get all players who have played up to and including this date
+        players_up_to_date = df[df['date'] <= date]['player'].unique()
+        # Get the most recent Elo for each of those players at this date
+        latest_elos = []
+        for player in players_up_to_date:
+            player_data = df[(df['player'] == player) & (df['date'] <= date)]
+            if not player_data.empty:
+                latest_elos.append(player_data.iloc[-1]['elo'])
+
+        if latest_elos:
+            mean_elo_by_date.append(sum(latest_elos) / len(latest_elos))
+            mean_x.append(date_index_map[date])
+
+    # Prepare colors and markers
+    colors = plt.cm.tab20.colors  # 20 distinct colors
+    markers = ['o', 's', 'D', '^', 'v', '<', '>', 'p', '*', 'h', 'H', '+', 'x', '|', '_']
+
+    color_cycle = itertools.cycle(colors)
+    marker_cycle = itertools.cycle(markers)
+
+    # Assign each player a color and marker
+    player_styles = {}
+    for player in df['player'].unique():
+        player_styles[player] = (next(color_cycle), next(marker_cycle))
+
+    # Plot
+    plt.figure(figsize=(14, 6))
+
+    # Plot mean Elo line
+    # plt.plot(mean_x, mean_elo_by_date, label='Mean Elo', color='black', linewidth=2.5, linestyle='--', zorder=10)
+
+    for player, data in df.groupby('player'):
+        color, marker = player_styles[player]
+        plt.plot(data['x'], data['elo'], label=player, color=color, marker=marker)
+
+
+    # X-axis labels as dates
+    plt.xticks(range(len(unique_dates)), [d.strftime('%Y-%m-%d') for d in unique_dates], rotation=45)
+
+    plt.xlabel('Match Update (by date)')
+    plt.ylabel('Elo')
+    plt.title('Elo Evolution per Match Update')
+
+    # Move legend outside the plot
+    plt.legend(title='Players', bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+
+    plt.savefig('elo_evolution_steps.png', bbox_inches='tight')
+
+def graph_last_match_players():
+    # Load data
+    df = pd.read_csv('elo_history.csv', parse_dates=['date'])
+    df = df.sort_values(by='date')
+
+    # Find the last match date
+    last_match_date = df['date'].max()
+
+    # Get players who played in the last match
+    last_match_players = df[df['date'] == last_match_date]['player'].unique()
+
+    # Filter dataframe to only include those players
+    df = df[df['player'].isin(last_match_players)]
+
+    # Map each unique date to an index for x-axis
+    unique_dates = df['date'].unique()
+    date_index_map = {date: i for i, date in enumerate(unique_dates)}
+    df['x'] = df['date'].map(date_index_map)
+
+    # Calculate mean Elo for each date
+    mean_elo = df.groupby('date')['elo'].mean()
+    mean_x = [date_index_map[date] for date in mean_elo.index]
 
     # Prepare colors and markers
     colors = plt.cm.tab20.colors  # 20 distinct colors
@@ -280,20 +372,22 @@ def graph_func():
         color, marker = player_styles[player]
         plt.plot(data['x'], data['elo'], label=player, color=color, marker=marker)
 
+    # Plot mean Elo line
+    # plt.plot(mean_x, mean_elo.values, label='Mean Elo', color='black', linewidth=2.5, linestyle='--', zorder=10)
+
     # X-axis labels as dates
     plt.xticks(range(len(unique_dates)), [d.strftime('%Y-%m-%d') for d in unique_dates], rotation=45)
 
     plt.xlabel('Match Update (by date)')
     plt.ylabel('Elo')
-    plt.title('Elo Evolution per Match Update')
+    plt.title('Elo Evolution for Last Match Players')
 
     # Move legend outside the plot
     plt.legend(title='Players', bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.grid(alpha=0.3)
     plt.tight_layout()
 
-    plt.savefig('elo_evolution_steps.png', bbox_inches='tight')
-
+    plt.savefig('elo_evolution_last_match.png', bbox_inches='tight')
 
 def sort_maps_by_selected_players(map_stats_file, players_file, maps_file):
     # Load selected players into a set
@@ -360,5 +454,7 @@ if __name__ == "__main__":
 
     graph_func()
 
-    print("")
-    sort_maps_by_selected_players(map_stats_output_file, 'players.txt', 'maps.csv')
+    graph_last_match_players()
+
+    #print("")
+    #sort_maps_by_selected_players(map_stats_output_file, 'players.txt', 'maps.csv')

@@ -1,49 +1,50 @@
 player,map,count
-HellstormBishop,Vanilla,60
-HellstormBishop,Pompeii,5
-HellstormBishop,Thermopylae,3
+HellstormBishop,Vanilla,9
+HellstormBishop,Pompeii,2
+HellstormBishop,Thermopylae,2
 HellstormBishop,Highland Divide,2
 HellstormBishop,Terratonic,2
-Near,Vanilla,32
-Near,Highland Divide,16
-ColdInformer,Vanilla,32
-ColdInformer,Terratonic,16
-ColdInformer,Highland Divide,8
-WarriorOfCadia40,Vanilla,60
-WarriorOfCadia40,Pompeii,5
-WarriorOfCadia40,Terratonic,4
-WarriorOfCadia40,Thermopylae,2
-WarriorOfCadia40,Highland Divide,2
-ArtPed,Vanilla,60
-ArtPed,Pompeii,5
-ArtPed,Terratonic,4
+ArtPed,Vanilla,9
+ArtPed,Pompeii,2
+ArtPed,Terratonic,3
 ArtPed,Thermopylae,2
 ArtPed,Highland Divide,2
-Ferrer,Vanilla,57
-Ferrer,Pompeii,5
-Ferrer,Terratonic,4
+Sakamoto,Vanilla,7
+FelonyaWing,Vanilla,16
+Bardun,Vanilla,5
+Bardun,Pompeii,2
+Bardun,Terratonic,1
+Bardun,Highland Divide,2
+WarriorOfCadia40,Vanilla,9
+WarriorOfCadia40,Pompeii,2
+WarriorOfCadia40,Terratonic,3
+WarriorOfCadia40,Thermopylae,2
+WarriorOfCadia40,Highland Divide,2
+Ferrer,Vanilla,5
+Ferrer,Pompeii,2
+Ferrer,Terratonic,3
 Ferrer,Thermopylae,2
 Ferrer,Highland Divide,1
-Bardun,Vanilla,50
-Bardun,Pompeii,9
-Bardun,Terratonic,4
-Bardun,Highland Divide,2
-Sakamoto,Vanilla,48
-Xande,Vanilla,40
-Xande,Thermopylae,16
-Xande,Terratonic,6
-Samuk,Terratonic,32
-Samuk,Thermopylae,20
-Samuk,Vanilla,8
-Samuk,Pompeii,2
+Cold,Vanilla,3
+Cold,Terratonic,1
+Cold,Highland Divide,1
+Near,Vanilla,6
+Near,Highland Divide,1
+Xande,Vanilla,3
+Xande,Thermopylae,1
+Xande,Terratonic,2
+Samuk,Terratonic,1
+Samuk,Thermopylae,2
+Samuk,Vanilla,1
+Samuk,Pompeii,1
 Samuk,Highland Divide,1
 Lasanha,Thermopylae,32
-Vitor,Thermopylae,32
-Vitor,Highland Divide,16
-Vitor,Vanilla,14
-Babebi,Highland Divide,32
-Babebi,Vanilla,24
-Henriquerike14_,Highland Divide,32
-Henriquerike14_,Vanilla,16
-Zardosh,Vanilla,48
-BrunoBour,Vanilla,32
+Vitor,Thermopylae,2
+Vitor,Highland Divide,1
+Vitor,Vanilla,3
+Babebi,Highland Divide,4
+Babebi,Vanilla,3
+Henriquerike14_,Highland Divide,8
+Henriquerike14_,Vanilla,4
+Zardosh,Vanilla,12
+BrunoBour,Vanilla,16
