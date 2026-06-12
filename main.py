@@ -3,13 +3,15 @@ import math
 from datetime import datetime
 from collections import defaultdict
 from itertools import combinations
+from operator import truediv
 
-# ELO system constants
-INITIAL_ELO = 1000
-K_FACTOR = 6*32
+# KARMA system constants
+INITIAL_KARMA = 1000
+K_FACTOR = (32)
 
 # Store player data
-player_elo = {}
+player_karma = {}
+player_win_loss_dif = {}
 player_history = defaultdict(list)
 
 def read_groups(groups_file):
@@ -32,11 +34,37 @@ def merge_players_with_groups(players, groups):
             merged.append([player])
     return merged
 
-def format_team(team, player_elo):
-    return ', '.join(f"{p}({int(player_elo[p])})" for p in team)
+def format_team(team, player_karma):
+    return ', '.join(f"{p}({int(player_karma[p])})" for p in team)
 
-def expected_score(elo1, elo2):
-    return 1 / (1 + 10 ** ((elo2 - elo1) / 400))
+def expected_score(karma1, karma2):
+    dif_sensitivity = ((karma1+karma2)/1000/2)*400 # how many average players we have per team * 400
+    #print(dif_sensitivity)
+    return 1 / (1 + 10 ** ((karma2 - karma1) / dif_sensitivity))
+
+def load_player_languages(filename: str) -> dict:
+    """
+    Reads a file mapping players to languages.
+    Returns: dict { player_name: set_of_languages }
+    """
+    player_languages = {}
+
+    with open(filename, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line or ":" not in line:
+                continue  # Skip empty or invalid lines
+
+            name, langs = line.split(":", 1)
+            name = name.strip()
+
+            # Split by comma or space
+            langs = langs.replace(",", " ").split()
+            lang_set = {lang.strip().lower() for lang in langs if lang.strip()}
+
+            player_languages[name] = lang_set
+
+    return player_languages
 
 def generate_full_balanced_teams(player_list_file):
     # Read player names
@@ -47,10 +75,14 @@ def generate_full_balanced_teams(player_list_file):
         print("Need at least 2 players to form teams.")
         return
 
-    # Set Elo to 1000 if player not seen before
+    # Set Karma: use custom initial value if available, otherwise use default
+    total_playing_karma = 0
     for player in players:
-        if player not in player_elo:
-            player_elo[player] = INITIAL_ELO
+        if player not in player_karma:
+            player_karma[player] = INITIAL_KARMA
+        if player not in player_win_loss_dif:
+            player_win_loss_dif[player] = 0
+        total_playing_karma += player_karma[player]
 
     # Read groups and merge
     groups = read_groups("groups.txt")
@@ -58,134 +90,205 @@ def generate_full_balanced_teams(player_list_file):
 
     # Generate team combinations at group level
     num_groups = len(grouped_players)
-    team_size = num_groups // 2
 
-    seen_pairs = set()
     results = []
 
-    for team1_groups in combinations(range(num_groups), team_size):
-        team1 = []
-        team2 = []
-        for i in range(num_groups):
-            if i in team1_groups:
-                team1.extend(grouped_players[i])
-            else:
-                team2.extend(grouped_players[i])
+    player_languages = load_player_languages("languages.txt")
+    for player in players:
+        player_languages[player] = {"en"}
+        if player not in player_languages:
+            player_languages[player] = {"en"}
 
-        # Ensure balanced size
-        if abs(len(team1) - len(team2)) > 1:
-            continue
+    karma_dif_threshold = (total_playing_karma/1000/2)*400 # how many average players we have per team * 400
+    max_team_karma = (total_playing_karma/2) + karma_dif_threshold/2
+    #print(f'tpe: {total_playing_karma/2}   karma_fi: {karma_dif_threshold}    max_karma: {max_team_karma}')
+    for r in range(1, num_groups-1):  # r = number of groups in Team1
+        for team1_groups in combinations(range(num_groups), r):
 
-        team1 = tuple(sorted(team1))
-        team2 = tuple(sorted(team2))
-        pair = tuple(sorted([team1, team2]))
-        if pair in seen_pairs:
-            continue
-        seen_pairs.add(pair)
+            team1 = []
+            team2 = []
+            for i in range(num_groups):
+                if i in team1_groups:
+                    team1.extend(grouped_players[i])
+                else:
+                    team2.extend(grouped_players[i])
 
-        elo_team1 = sum(player_elo[p] for p in team1)
-        elo_team2 = sum(player_elo[p] for p in team2)
-        diff = abs(elo_team1 - elo_team2)
+            # ---- LANGUAGE FILTER ----
+            # Team1 must share at least one language
 
+            langs_t1 = set.intersection(*(player_languages[p] for p in team1))
+            if not langs_t1:
+                continue
 
-        if elo_team2 > elo_team1:
-            tmp = elo_team1
-            elo_team1 = elo_team2
-            elo_team2 = tmp
-            tmp = team1
-            team1 = team2
-            team2 = tmp
+            # Team2 must share at least one language
+            langs_t2 = set.intersection(*(player_languages[p] for p in team2))
+            if not langs_t2:
+                continue
+            # ---------------------------
 
-        results.append((diff, team1, elo_team1, team2, elo_team2))
+            # Compute Karma sums
+            karma_team1 = sum(player_karma[p] for p in team1)
+            karma_team2 = sum(player_karma[p] for p in team2)
 
-    # Sort by Elo difference
+            # Must meet the new rule
+            if karma_team1 < karma_team2:  # Must be stronger or equal
+                continue
+
+            if karma_team1 > max_team_karma:  # Team1 cannot exceed allowed Karma
+                continue
+
+            #print(f'{team1} {team2}')
+
+            diff = karma_team1 - karma_team2
+            results.append((diff, team1, karma_team1, team2, karma_team2))
+
+    # Sort by Karma difference
     results.sort(key=lambda x: x[0])
     #results = results[:30]
 
     # Print aligned results
-    max_team1_str_len = max(len(format_team(team1, player_elo)) for _, team1, _, _, _ in results)
-    max_team2_str_len = max(len(format_team(team2, player_elo)) for _, _, _, team2, _ in results)
+    max_team1_str_len = max(len(format_team(team1, player_karma)) for _, team1, _, _, _ in results)
+    max_team2_str_len = max(len(format_team(team2, player_karma)) for _, _, _, team2, _ in results)
 
     print("\n--- Full Balanced Teams ---")
-    for diff, team1, elo1, team2, elo2 in results:
+    for diff, team1, karma1, team2, karma2 in results:
 
-        team1_str = format_team(team1, player_elo)
-        team2_str = format_team(team2, player_elo)
-        expected_team_1_win = expected_score(elo1, elo2)
+        team1_str = format_team(team1, player_karma)
+        team2_str = format_team(team2, player_karma)
+        expected_team_1_win = expected_score(karma1, karma2)
         expected_team_2_win = 1 - expected_team_1_win
 
-        team1_changes = [int(K_FACTOR * (1 - expected_team_1_win) / len(team1)),
-                         int(K_FACTOR * (0.5 - expected_team_1_win) / len(team1)),
-                         int(K_FACTOR * (0 - expected_team_1_win) / len(team1))]
-        team2_changes = [int(K_FACTOR * (1 - expected_team_2_win) / len(team2)),
-                         int(K_FACTOR * (0.5 - expected_team_2_win) / len(team2)),
-                         int(K_FACTOR * (0 - expected_team_2_win) / len(team2))]
+        team_win_loss_diff = sum(player_win_loss_dif[p] for p in team1) - sum(player_win_loss_dif[p] for p in team2)
 
-        print(f"{team1_str:<{max_team1_str_len}} [{int(elo1)}]   vs   "
-              f"{team2_str:<{max_team2_str_len}} [{int(elo2)}]   |   "
-              f"Δ = {int(diff)}   |   {int(100*expected_team_1_win)}%  |  "
-              f"{team1_changes}  |  {team2_changes}")
+        cur_K_FACTOR = K_FACTOR*(len(team1)+len(team2))
+        team1_changes = [int(cur_K_FACTOR * (1 - expected_team_1_win) / len(team1)),
+                         int(cur_K_FACTOR * (0.5 - expected_team_1_win) / len(team1)),
+                         int(cur_K_FACTOR * (0 - expected_team_1_win) / len(team1))]
+        team2_changes = [int(cur_K_FACTOR * (1 - expected_team_2_win) / len(team2)),
+                         int(cur_K_FACTOR * (0.5 - expected_team_2_win) / len(team2)),
+                         int(cur_K_FACTOR * (0 - expected_team_2_win) / len(team2))]
 
-# Helper to calculate expected score
-def expected_score(team_elo, opponent_elo):
-    return 1 / (1 + 10 ** ((opponent_elo - team_elo) / 800))
-
-
-# Format team for printing
-def format_team(players, elos):
-    return ", ".join(f"{p} ({int(elos[p])})" for p in players)
+        print(
+            f"{team1_str:<{max_team1_str_len}} [{int(karma1)}]   vs   "
+            f"{team2_str:<{max_team2_str_len}} [{int(karma2)}]   |  "
+            f"Δ = {int(diff):>4} | {int(100 * expected_team_1_win):>3}% | {team_win_loss_diff:>3} | "
+            f"{team1_changes}  |  {team2_changes}"
+        )
 
 
-# Update Elo ratings after a match
-def update_elo(winners, losers, result, match_date):
-    # Ensure everyone has an Elo
+# Update Karma ratings after a match
+def update_karma_two_teams(winners, losers, result, match_date):
+    # Ensure everyone has an Karma
     for player in winners + losers:
-        if player not in player_elo:
-            player_elo[player] = INITIAL_ELO
+        if player not in player_karma:
+            player_karma[player] = INITIAL_KARMA
 
-    # Record team Elo sums
-    winners_elo = sum(player_elo[p] for p in winners)
-    losers_elo = sum(player_elo[p] for p in losers)
+
+
+    # Record team Karma sums
+    winners_karma = sum(player_karma[p] for p in winners)
+    losers_karma = sum(player_karma[p] for p in losers)
 
     # Calculate expected win probability
-    expected_win = expected_score(winners_elo, losers_elo)
+    expected_win = expected_score(winners_karma, losers_karma)
 
-    # Change in Elo for the whole team
-    team_change = K_FACTOR * (result - expected_win)
+    # Change in Karma for the whole team
+    cur_K_FACTOR = K_FACTOR * (len(winners) + len(losers))
+    team_change = cur_K_FACTOR * (result - expected_win)
 
     # Distribute the change among players
     per_player_win_change = team_change / len(winners)
     per_player_lose_change = team_change / len(losers)
 
     # Before update, print match summary
-    winners_str = format_team(winners, player_elo)
-    losers_str = format_team(losers, player_elo)
-    print(
-        f"{winners_str} ({int(winners_elo)}) ({'+' + str(int(per_player_win_change))})  vs  {losers_str} ({int(losers_elo)}) ({'-' + str(int(per_player_lose_change))})")
+    winners_str = format_team(winners, player_karma)
+    losers_str = format_team(losers, player_karma)
+    print(f"{winners_str} ({int(winners_karma)}) ({'+' + str(int(per_player_win_change))})  vs  {losers_str} ({int(losers_karma)}) ({'-' + str(int(per_player_lose_change))})")
+
+    #summed_change = 0.0
 
     # Update winners with decay based on match count
     for player in winners:
         matches_played = player_cnt.get(player, 0)
         decay_multiplier = math.exp(-matches_played / 3)
-        actual_change = per_player_win_change + (1 * per_player_win_change * decay_multiplier)
 
-        player_elo[player] += actual_change
-        player_history[player].append((match_date, player_elo[player]))
-        player_cnt[player] = matches_played + 1
+        actual_change = per_player_win_change + (1 * per_player_win_change * decay_multiplier)
+        player_karma[player] += actual_change
+        #summed_change += actual_change
 
     # Update losers with decay based on match count
     for player in losers:
         matches_played = player_cnt.get(player, 0)
         decay_multiplier = math.exp(-matches_played / 3)
-        actual_change = per_player_lose_change + (1 * per_player_lose_change * decay_multiplier)
 
-        player_elo[player] -= actual_change
-        player_history[player].append((match_date, player_elo[player]))
+        actual_change = -(per_player_lose_change + (1 * per_player_lose_change * decay_multiplier))
+        player_karma[player] += actual_change
+        #summed_change += actual_change
+
+        '''
+    print(summed_change)
+    for player in player_karma.keys():
+        player_karma[player] -= summed_change/len(player_karma)
+        #print(f'{player} : {summed_change/len(player_karma)}')
+        '''
+
+    for player in winners + losers:
+        player_history[player].append((match_date, player_karma[player]))
+        matches_played = player_cnt.get(player, 0)
         player_cnt[player] = matches_played + 1
 
 
+def update_karma(winner, loser, match_date):
+    # Ensure everyone has an Karma
+    for player in [winner, loser]:
+        if player not in player_karma:
+            player_karma[player] = INITIAL_KARMA
+
+    # Record team Karma sums
+    winners_karma = player_karma[winner]
+    losers_karma = player_karma[loser]
+
+    # Calculate expected win probability
+    expected_win = expected_score(winners_karma, losers_karma)
+
+    # Change in Karma for the whole team
+    cur_K_FACTOR = K_FACTOR * 2
+    team_change = cur_K_FACTOR * (1 - expected_win)
+
+    # Distribute the change among players
+    per_player_win_change = team_change
+    per_player_lose_change = team_change
+
+    # Before update, print match summary
+    winners_str = format_team([winner], player_karma)
+    losers_str = format_team([loser], player_karma)
+    print(f"{winners_str} ({int(winners_karma)}) ({'+' + str(int(per_player_win_change))})  vs  {losers_str} ({int(losers_karma)}) ({'-' + str(int(per_player_lose_change))})")
+
+    # Update winners with decay based on match count
+
+    matches_played = player_cnt.get(winner, 0)
+    decay_multiplier = math.exp(-matches_played / 3)
+
+    actual_change = per_player_win_change + (1 * per_player_win_change * decay_multiplier)
+    player_karma[winner] += actual_change
+
+    # Update losers with decay based on match count
+
+    matches_played = player_cnt.get(loser, 0)
+    decay_multiplier = math.exp(-matches_played / 3)
+
+    actual_change = -(per_player_lose_change + (1 * per_player_lose_change * decay_multiplier))
+    player_karma[loser] += actual_change
+
+    for player in [winner, loser]:
+        player_history[player].append((match_date, player_karma[player]))
+        matches_played = player_cnt.get(player, 0)
+        player_cnt[player] = matches_played + 1
+
+process_only = {"FFAx", "TWO", "1V1x"}
+
 # Main function to process matches
-def process_matches(input_file, history_output_file, final_elo_output_file, map_stats_output_file):
+def process_matches(input_file, history_output_file, final_karma_output_file, map_stats_output_file):
     # Track how many times each player played on each map
     player_map_counts = defaultdict(lambda: defaultdict(int))
 
@@ -193,69 +296,226 @@ def process_matches(input_file, history_output_file, final_elo_output_file, map_
         reader = csv.DictReader(csvfile)
         matches = sorted(reader, key=lambda row: datetime.strptime(row['date'], "%Y-%m-%d"))
 
-        # Initialize player_cnt at the function level so update_elo can access it
+        # Initialize player_cnt at the function level so update_karma can access it
         global player_cnt
         player_cnt = defaultdict(int)
 
         print("History of past matches:")
         for row in matches:
             date = row['date']
-            winners = [p.strip() for p in row['winners'].split(',')]
-            losers = [p.strip() for p in row['losers'].split(',')]
             result = float(row['result'])
 
+            # Check if this is a multi-team match or legacy format
+            teams = [
+                [p.strip() for p in team.split(',')]
+                for team in row['teams'].split('|')
+            ]
+
             if result != -1:
-                update_elo(winners, losers, result, date)
+                if len(teams) == 2 and len(teams[0])==1 and len(teams[1])==1:
+                    if "1V1" in process_only:
+                        update_karma(teams[0][0], teams[1][0], date)
+                elif len(teams) > 2:
+                    if "FFA" in process_only:
+                        update_karma_multi_team(teams, date)
+                else:
+                    if "TWO" in process_only:
+                        update_karma_two_teams(teams[0], teams[1], result, date)
+                # Legacy 2-team format
 
+            for team_pos in range(len(teams)):
+                if len(teams) == 2 and (len(teams[0])!=1 or len(teams[1])!=1):
+                    for player in teams[team_pos]:
+                        if player not in player_win_loss_dif:
+                            player_win_loss_dif[player] = 0
+                        player_win_loss_dif[player] += len(teams)-1-team_pos
+                        player_win_loss_dif[player] -= team_pos
+            #print(player_win_loss_dif["HellstormBishop"])
+
+        # Map Counter
         for row in matches[::-1]:
+            if 'teams' in row and row['teams']:
+                # Multi-team format
+                teams = [
+                    [p.strip() for p in team.split(',')]
+                    for team in row['teams'].split('|')
+                ]
+                all_players = [player for team in teams for player in team]
+            else:
+                # Legacy format
+                winners = [p.strip() for p in row['winners'].split(',')]
+                losers = [p.strip() for p in row['losers'].split(',')]
+                all_players = winners + losers
 
-            winners = [p.strip() for p in row['winners'].split(',')]
-            losers = [p.strip() for p in row['losers'].split(',')]
-            match_map = row['match_map']
+            who_picked_song = row['who_picked_song']
 
             # Count map plays for each player in this match
-            for player in winners + losers:
-
+            for player in all_players:
                 if player not in player_cnt:
                     player_cnt[player] = 0
 
-                to_add = 1
-                if player_cnt[player] < 5:
-                    to_add = pow(2, 5 - player_cnt[player])
-
-                player_map_counts[player][match_map] += to_add
                 player_cnt[player] += 1
 
-    # Write elo history
+    # Write karma history
     with open(history_output_file, 'w', newline='') as csvfile:
-        fieldnames = ['player', 'date', 'elo']
+        fieldnames = ['player', 'date', 'karma']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
         writer.writeheader()
         for player, history in player_history.items():
-            for date, elo in history:
-                writer.writerow({'player': player, 'date': date, 'elo': round(elo, 2)})
+            for date, karma in history:
+                writer.writerow({'player': player, 'date': date, 'karma': round(karma, 2)})
 
-    # Write final elo leaderboard
-    with open(final_elo_output_file, 'w', newline='') as csvfile:
-        fieldnames = ['player', 'final_elo']
+    # Write final karma leaderboard
+    with open("final_karma.csv", 'w', newline='') as csvfile:
+        fieldnames = ['player', 'wins-losses']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
         writer.writeheader()
-        # Sort players by final elo descending
-        for player, elo in sorted(player_elo.items(), key=lambda x: x[1], reverse=True):
-            writer.writerow({'player': player, 'final_elo': round(elo, 2)})
+        # Sort players by final karma descending
+        for player, karma in sorted(player_win_loss_dif.items(), key=lambda x: x[1], reverse=True):
+            writer.writerow({'player': player, 'wins-losses': round(karma, 2)})
 
-    # Write player map stats
-    with open(map_stats_output_file, 'w', newline='') as csvfile:
-        fieldnames = ['player', 'map', 'count']
+    # Write final KARMA leaderboard (spaced / aligned)
+    with open(final_karma_output_file, 'w', newline='', encoding='utf-8') as csvfile:
+        fieldnames = ['rank', 'player', 'karma']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
         writer.writeheader()
 
-        for player, maps in player_map_counts.items():
-            for map_name, count in maps.items():
-                writer.writerow({'player': player, 'map': map_name, 'count': count})
+        sorted_players = sorted(
+            player_karma.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
 
+        for rank, (player, karma) in enumerate(sorted_players, start=1):
+            writer.writerow({
+                'rank': f"{rank:>3}",  # right-aligned, width 3
+                'player': f"{player:<20}",  # left-aligned, width 20
+                'karma': f"{karma:>8.2f}"  # right-aligned, width 8, 2 decimals
+            })
+
+    create_leaderboard_images(player_karma)
+
+from PIL import Image, ImageDraw, ImageFont
+
+
+def create_leaderboard_images(player_karma, players_per_page=15):
+    # 1. Sort the players
+    sorted_players = sorted(player_karma.items(), key=lambda x: x[1], reverse=True)
+
+    # 2. Chunk the list into groups of 25
+    pages = [sorted_players[i:i + players_per_page]
+             for i in range(0, len(sorted_players), players_per_page)]
+
+    # 3. Design Settings
+    padding = 40
+    line_height = 35
+    font_size = 24
+    img_width = 600
+
+    try:
+        font = ImageFont.truetype("cour.ttf", font_size)
+    except:
+        font = ImageFont.load_default()
+
+    for page_idx, page_data in enumerate(pages):
+        # Calculate height for this specific image
+        img_height = (len(page_data) * line_height) + (padding * 2) + 60
+        image = Image.new('RGB', (img_width, img_height), color=(30, 33, 36))
+        draw = ImageDraw.Draw(image)
+
+        # Draw Header with Page Number
+        header = f"{'Rank':>5}   {'Player':<20} {'KARMA':>10}"
+        draw.text((padding, padding), header, fill=(255, 215, 0), font=font)
+        #draw.text((img_width - 150, padding - 20), f"Page {page_idx + 1}", fill=(150, 150, 150), font=font)
+        draw.line([padding, padding + 35, img_width - padding, padding + 35], fill=(100, 100, 100))
+
+        # 4. Draw Players for this page
+        y_offset = padding + 60
+        for i, (player, karma) in enumerate(page_data):
+            # Calculate global rank
+            rank = (page_idx * players_per_page) + i + 1
+
+            row_text = f"{rank:>5}   {player:<20} {karma:>10.2f}"
+
+            # Color Logic
+            text_color = (255, 255, 255)
+            if rank == 1:
+                text_color = (255, 215, 0)
+            elif rank == 2:
+                text_color = (192, 192, 192)
+            elif rank == 3:
+                text_color = (205, 127, 50)
+
+            draw.text((padding, y_offset), row_text, fill=text_color, font=font)
+            y_offset += line_height
+
+        # 5. Save numbered file
+        image.save(f"leaderboard_part_{page_idx + 1}.png")
+
+# Update Karma ratings for multi-team matches
+def update_karma_multi_team(teams, match_date):
+    """
+    Update Karma for matches with 2+ teams.
+    Teams are ordered by placement (1st, 2nd, 3rd, etc.)
+    Each team is considered to have lost to all teams to its left
+    and won against all teams to its right.
+    """
+    # Ensure all players have an Karma
+    all_players = [player for team in teams for player in team]
+    for player in all_players:
+        if player not in player_karma:
+            player_karma[player] = INITIAL_KARMA
+
+    # Calculate team Karma sums
+    team_karmas = [sum(player_karma[p] for p in team) for team in teams]
+
+    average_karma = sum(team_karmas)/(len(teams))
+    cur_K_FACTOR = K_FACTOR * (average_karma / 1000)
+
+    # For each team, calculate total Karma change based on all matchups
+    team_changes = [0.0] * len(teams)
+
+    for i, team_i in enumerate(teams):
+        # Team i lost to all teams to its left (better placements)
+        for j in range(i):
+            team_j = teams[j]
+            total_players = len(team_i) + len(team_j)
+            expected_win = expected_score(team_karmas[i], team_karmas[j])
+            # Team i lost this matchup (result = 0)
+            team_changes[i] += cur_K_FACTOR * (0 - expected_win)
+
+        # Team i won against all teams to its right (worse placements)
+        for j in range(i + 1, len(teams)):
+            team_j = teams[j]
+            total_players = len(team_i) + len(team_j)
+            expected_win = expected_score(team_karmas[i], team_karmas[j])
+            # Team i won this matchup (result = 1)
+            team_changes[i] += cur_K_FACTOR * (1 - expected_win)
+
+    # Print match summary
+    teams_str = " vs ".join([
+        f"{format_team(team, player_karma)} ({int(sum(player_karma[p] for p in team))}) "
+        f"({'+' if team_changes[i] >= 0 else ''}{int(team_changes[i]/len(teams[i]))})"
+        for i, team in enumerate(teams)
+    ])
+    print(teams_str)
+
+    # Distribute changes among players and update with decay
+    for i, team in enumerate(teams):
+        per_player_change = team_changes[i] / len(team)
+
+        for player in team:
+            matches_played = player_cnt.get(player, 0)
+            actual_change = per_player_change
+
+            player_karma[player] += actual_change
+            if player_karma[player] < 1:
+                player_karma[player] = 1
+            player_history[player].append((match_date, player_karma[player]))
+            player_cnt[player] = matches_played + 1
 
 
 import matplotlib
@@ -267,7 +527,7 @@ import itertools
 
 def graph_func():
     # Load data
-    df = pd.read_csv('elo_history.csv', parse_dates=['date'])
+    df = pd.read_csv('karma_history.csv', parse_dates=['date'])
     df = df.sort_values(by='date')
 
     # Map each unique date to an index for x-axis
@@ -275,23 +535,28 @@ def graph_func():
     date_index_map = {date: i for i, date in enumerate(unique_dates)}
     df['x'] = df['date'].map(date_index_map)
 
-    # Calculate mean Elo for each date (from all players who have played up to that point)
-    mean_elo_by_date = []
+    # Calculate mean Karma for each date (from all players who have played up to that point)
+    mean_karma_by_date = []
+    extra_karma_by_date = []
     mean_x = []
 
     for date in unique_dates:
         # Get all players who have played up to and including this date
         players_up_to_date = df[df['date'] <= date]['player'].unique()
-        # Get the most recent Elo for each of those players at this date
-        latest_elos = []
+        # Get the most recent Karma for each of those players at this date
+        latest_karmas = []
         for player in players_up_to_date:
             player_data = df[(df['player'] == player) & (df['date'] <= date)]
             if not player_data.empty:
-                latest_elos.append(player_data.iloc[-1]['elo'])
+                latest_karmas.append(player_data.iloc[-1]['karma'])
 
-        if latest_elos:
-            mean_elo_by_date.append(sum(latest_elos) / len(latest_elos))
+        if latest_karmas:
+            mean_karma_by_date.append(sum(latest_karmas) / len(latest_karmas))
+            extra_karma_by_date.append(sum(latest_karmas)-1000*len(latest_karmas))
             mean_x.append(date_index_map[date])
+
+    print([int(f) for f in mean_karma_by_date])
+    print([int(f) for f in extra_karma_by_date])
 
     # Prepare colors and markers
     colors = plt.cm.tab20.colors  # 20 distinct colors
@@ -308,31 +573,37 @@ def graph_func():
     # Plot
     plt.figure(figsize=(14, 6))
 
-    # Plot mean Elo line
-    # plt.plot(mean_x, mean_elo_by_date, label='Mean Elo', color='black', linewidth=2.5, linestyle='--', zorder=10)
+    # Plot mean Karma line
+    #plt.plot(mean_x, mean_karma_by_date, label='Mean Karma', color='black', linewidth=2.5, linestyle='--', zorder=10)
 
     for player, data in df.groupby('player'):
         color, marker = player_styles[player]
-        plt.plot(data['x'], data['elo'], label=player, color=color, marker=marker)
+        plt.plot(data['x'], data['karma'], label=player, color=color, marker=marker)
 
 
     # X-axis labels as dates
     plt.xticks(range(len(unique_dates)), [d.strftime('%Y-%m-%d') for d in unique_dates], rotation=45)
 
     plt.xlabel('Match Update (by date)')
-    plt.ylabel('Elo')
-    plt.title('Elo Evolution per Match Update')
+    plt.ylabel('Karma')
+
+    title = 'Karma Evolution per Match Update'
+    if ("1V1" in process_only and "TWO" not in process_only and "FFA" not in process_only):
+        title = "1v1 Karma Evolution"
+    if ("1V1" not in process_only and "TWO" not in process_only and "FFA" in process_only):
+        title = "Diplo Karma Evolution"
+    plt.title(title)
 
     # Move legend outside the plot
     plt.legend(title='Players', bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.grid(alpha=0.3)
     plt.tight_layout()
 
-    plt.savefig('elo_evolution_steps.png', bbox_inches='tight')
+    plt.savefig('karma_evolution_steps.png', bbox_inches='tight')
 
 def graph_last_match_players():
     # Load data
-    df = pd.read_csv('elo_history.csv', parse_dates=['date'])
+    df = pd.read_csv('karma_history.csv', parse_dates=['date'])
     df = df.sort_values(by='date')
 
     # Find the last match date
@@ -349,9 +620,9 @@ def graph_last_match_players():
     date_index_map = {date: i for i, date in enumerate(unique_dates)}
     df['x'] = df['date'].map(date_index_map)
 
-    # Calculate mean Elo for each date
-    mean_elo = df.groupby('date')['elo'].mean()
-    mean_x = [date_index_map[date] for date in mean_elo.index]
+    # Calculate mean Karma for each date
+    mean_karma = df.groupby('date')['karma'].mean()
+    mean_x = [date_index_map[date] for date in mean_karma.index]
 
     # Prepare colors and markers
     colors = plt.cm.tab20.colors  # 20 distinct colors
@@ -370,24 +641,32 @@ def graph_last_match_players():
 
     for player, data in df.groupby('player'):
         color, marker = player_styles[player]
-        plt.plot(data['x'], data['elo'], label=player, color=color, marker=marker)
+        plt.plot(data['x'], data['karma'], label=player, color=color, marker=marker)
 
-    # Plot mean Elo line
-    # plt.plot(mean_x, mean_elo.values, label='Mean Elo', color='black', linewidth=2.5, linestyle='--', zorder=10)
+    # Plot mean Karma line
+    # plt.plot(mean_x, mean_karma.values, label='Mean Karma', color='black', linewidth=2.5, linestyle='--', zorder=10)
 
     # X-axis labels as dates
     plt.xticks(range(len(unique_dates)), [d.strftime('%Y-%m-%d') for d in unique_dates], rotation=45)
 
     plt.xlabel('Match Update (by date)')
-    plt.ylabel('Elo')
-    plt.title('Elo Evolution for Last Match Players')
+    plt.ylabel('Karma')
 
-    # Move legend outside the plot
+
+    if ("1V1" not in process_only and "TWO" in process_only and "FFA" not in process_only):
+        title = ("2 Teams Karma for Last Match Players")
+    elif ("1V1" not in process_only and "TWO" not in process_only and "FFA" in process_only):
+        title = "Diplomatic Karma for Last Match Players"
+    else:
+        title = "1v1 Karma for Last Match Players"
+    plt.title(title)
+
+    #Move legend outside the plot
     plt.legend(title='Players', bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.grid(alpha=0.3)
     plt.tight_layout()
 
-    plt.savefig('elo_evolution_last_match.png', bbox_inches='tight')
+    plt.savefig('karma_evolution_last_match.png', bbox_inches='tight')
 
 def sort_maps_by_selected_players(map_stats_file, players_file, maps_file):
     # Load selected players into a set
@@ -438,21 +717,124 @@ def sort_maps_by_selected_players(map_stats_file, players_file, maps_file):
         print(f"{map_name} ({map_type}): {total_count}")
 
 
+def get_potential_changes(teams):
+    """
+    Calculates the Karma change for each team for every possible rank.
+    Returns a dictionary mapping Team -> List of changes [if 1st, if 2nd, ...]
+    """
+    n_teams = len(teams)
+    team_karmas = [sum(player_karma.get(p, INITIAL_KARMA) for p in team) for team in teams]
+
+    # results[team_index][rank_index]
+    results = [[0.0 for _ in range(n_teams)] for _ in range(n_teams)]
+
+        # For the sake of your request, let's calculate the specific
+    # outcome for each team if they land in position X:
+
+    average_karma = sum(team_karmas) / (len(teams))
+    cur_K_FACTOR = K_FACTOR * (average_karma / 1000)
+
+    final_table = []
+    for i, team in enumerate(teams):
+        team_name = " & ".join(team)
+        outcomes = []
+        for rank in range(1, n_teams+1):
+            total_change = 0
+            opponent_rank = 1
+            for j, opponent in enumerate(teams):
+                if i == j: continue
+                if rank == opponent_rank:
+                    opponent_rank += 1
+                exp = expected_score(team_karmas[i], team_karmas[j])
+                # If i's rank < j's rank, i won.
+                # Here we simulate i being at 'rank' and j being at all other spots
+                # To simplify for the user, we assume other teams maintain their relative order
+                # or we just compare i against every other team.
+
+                # Logic: If I am 1st, I beat everyone. If 2nd, I beat everyone but 1.
+                # Because we don't know who is where, we assume 'rank' is the number of
+                # teams that beat us.
+
+                # A more accurate 'Pre-match' projection:
+                # Total Karma Change = (Wins * K) - (Total Expected Win * K)
+
+                if opponent_rank < rank:
+                    # Team i won this matchup (result = 1)
+                    total_change += cur_K_FACTOR * (0 - exp)
+                else:
+                    total_change += cur_K_FACTOR * (1 - exp)
+                opponent_rank += 1
+
+            outcomes.append(int(total_change/len(teams[i])))
+        final_table.append((team_name, team_karmas[i], outcomes))
+
+    # Sort teams by Karma (Strongest first)
+    final_table.sort(key=lambda x: x[1], reverse=True)
+
+    return final_table
+
+
+def generate_karma_changes_based_on_ranking(groups_file):
+    # --- Execution ---
+
+    # 1. Read teams from file
+    # Assuming groups.txt format:
+    # Player1 Player2
+    # Player3 Player4
+    teams = []
+    try:
+        with open("groups.txt", "r") as f:
+            for line in f:
+                if line.strip():
+                    teams.append(line.strip().split())
+    except FileNotFoundError:
+        # Fallback for demonstration
+        print("shitWentBad")
+
+    # --- Calculation & Display ---
+    results = get_potential_changes(teams)
+    num_ranks = len(teams)
+
+    # Find the longest label to set column width
+    max_label_len = max(
+        len(f"{team_name} [{int(team_karma)}]")
+        for team_name, team_karma, _ in results
+    )
+
+    # Build Header
+    header = f"{'Team Composition [Total Karma]':<{max_label_len}}"
+    for r in range(1, num_ranks + 1):
+        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(r if r < 20 else (r % 10), 'th')
+        header += f" | {str(r) + suffix:>5}"
+
+    print("\nKarma Change Projections (Sorted by Team Strength):")
+    print("-" * len(header))
+    print(header)
+    print("-" * len(header))
+
+    for team_name, team_karma, outcomes in results:
+        label = f"{team_name} [{int(team_karma)}]"
+        row = f"{label:<{max_label_len}}"
+        for val in outcomes:
+            row += f" | {val:>+5}"
+        print(row)
+
 if __name__ == "__main__":
 
     input_file = "matches.csv"  # Input matches
-    history_output_file = "elo_history.csv"  # Output player ELO over time
-    final_elo_output_file = "final_elo.csv"  # Output final elo ranking
+    history_output_file = "karma_history.csv"  # Output player KARMA over time
+    final_karma_output_file = "final_karma.txt"  # Output final karma ranking
     map_stats_output_file = "map_stats.csv"
-    process_matches(input_file, history_output_file, final_elo_output_file, map_stats_output_file)
+    process_matches(input_file, history_output_file, final_karma_output_file, map_stats_output_file)
 
     player_list_file = "players.txt"
 
-    #generate_balanced_teams(player_list_file)
+    if True:
+        generate_full_balanced_teams(player_list_file)
+    else:
+        generate_karma_changes_based_on_ranking("groups.txt")
 
-    generate_full_balanced_teams(player_list_file)
-
-    graph_func()
+    #graph_func()
 
     graph_last_match_players()
 
