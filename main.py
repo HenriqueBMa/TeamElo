@@ -151,8 +151,9 @@ def generate_full_balanced_teams(player_list_file):
     max_team2_str_len = max(len(format_team(team2, player_karma)) for _, _, _, team2, _ in results)
 
     print("\n--- Full Balanced Teams ---")
+    cnt = 0
     for diff, team1, karma1, team2, karma2 in results:
-
+        cnt += 1
         team1_str = format_team(team1, player_karma)
         team2_str = format_team(team2, player_karma)
         expected_team_1_win = expected_score(karma1, karma2)
@@ -169,6 +170,7 @@ def generate_full_balanced_teams(player_list_file):
                          int(cur_K_FACTOR * (0 - expected_team_2_win) / len(team2))]
 
         print(
+            f"{cnt} "
             f"{team1_str:<{max_team1_str_len}} [{int(karma1)}]   vs   "
             f"{team2_str:<{max_team2_str_len}} [{int(karma2)}]   |  "
             f"Δ = {int(diff):>4} | {int(100 * expected_team_1_win):>3}% | {team_win_loss_diff:>3} | "
@@ -834,7 +836,7 @@ if __name__ == "__main__":
     else:
         generate_karma_changes_based_on_ranking("groups.txt")
 
-    #graph_func()
+    graph_func()
 
     graph_last_match_players()
 
