@@ -823,7 +823,7 @@ def generate_karma_changes_based_on_ranking(groups_file):
 
 if __name__ == "__main__":
 
-    input_file = "matches.csv"  # Input matches
+    input_file = "quick_matches.csv"  # Input matches
     history_output_file = "karma_history.csv"  # Output player KARMA over time
     final_karma_output_file = "final_karma.txt"  # Output final karma ranking
     map_stats_output_file = "map_stats.csv"
