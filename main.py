@@ -14,13 +14,14 @@ import itertools
 # KARMA system constants
 INITIAL_KARMA = 1000
 K_FACTOR = 64
-process_only = {"FFAx", "TWOx", "1V1"}
+process_only = {"FFAx", "TWO", "1V1x"}
 WIN_LOSS_DIF_KARMA_WEIGHT = 40
 
 # Store player data
 player_karma = {}
 player_win_loss_dif = {}
 player_history = defaultdict(list)
+current_match = 0  # Position of the match being processed (1 = first row), so same-day matches stay in order
 
 def position_probability(team_idx, team_karmas, position):
     """
@@ -28,11 +29,12 @@ def position_probability(team_idx, team_karmas, position):
     i.e. that exactly `position` of the other teams beat it.
     Each opponent's win chance comes from expected_score, treated as independent.
     """
+    total_karma = sum(team_karmas)
     dist = [1.0]  # dist[n] = probability that exactly n opponents have beaten us so far
     for j, other_karma in enumerate(team_karmas):
         if j == team_idx:
             continue
-        p_lose = 1 - expected_score(team_karmas[team_idx], other_karma)
+        p_lose = 1 - expected_score_i(team_karmas[team_idx], other_karma, total_karma)
         new = [0.0] * (len(dist) + 1)
         for n, pr in enumerate(dist):
             new[n] += pr * (1 - p_lose)
@@ -67,8 +69,13 @@ def format_team_with_u_bal(team, inner_player_karma):
     return ', '.join(f"{p}({int(inner_player_karma[p])}+{WIN_LOSS_DIF_KARMA_WEIGHT*player_win_loss_dif[p]})" for p in team)
 
 def expected_score(karma1, karma2):
-    dif_sensitivity = ((karma1+karma2)/1000/2)*400 # how many average players we have per team * 400
-    #print(dif_sensitivity)
+    return expected_score_i(karma1, karma2, karma1+karma2)
+
+def expected_score_i(karma1, karma2, totalKarma):
+    pp = 0.0854
+    #pp = 1
+    totalKarma = pp*(totalKarma) + (1-pp)*(karma1+karma2)
+    dif_sensitivity = (totalKarma/1000/2)*400 # how many average players we have per team * 400
     return 1 / (1 + 10 ** ((karma2 - karma1) / dif_sensitivity))
 
 def generate_full_balanced_teams(inner_player_list_file):
@@ -141,6 +148,7 @@ def generate_full_balanced_teams(inner_player_list_file):
     # Print aligned results
     max_team1_str_len = max(len(format_team(team1, player_karma_for_balancing)) for _, team1, _, _, _ in results)
     max_team2_str_len = max(len(format_team(team2, player_karma_for_balancing)) for _, _, _, team2, _ in results)
+
 
     print("\n--- Full Balanced Teams ---")
     cnt = 0
@@ -231,7 +239,7 @@ def update_karma_two_teams(winners, losers, result, match_date):
         '''
 
     for player in winners + losers:
-        player_history[player].append((match_date, player_karma[player]))
+        player_history[player].append((match_date, player_karma[player], current_match))
         matches_played = player_cnt.get(player, 0)
         player_cnt[player] = matches_played + 1
 
@@ -282,7 +290,7 @@ def update_karma_1v1(winner, loser, match_date):
     player_karma[loser] += actual_change
 
     for player in [winner, loser]:
-        player_history[player].append((match_date, player_karma[player]))
+        player_history[player].append((match_date, player_karma[player], current_match))
         matches_played = player_cnt.get(player, 0)
         player_cnt[player] = matches_played + 1
 
@@ -302,6 +310,7 @@ def update_karma_multi_team(teams, match_date):
 
     # Calculate team Karma sums
     team_karmas = [sum(player_karma[p] for p in team) for team in teams]
+    total_karma = sum(team_karmas)
 
     #average_karma = sum(team_karmas)/(len(teams))
     #cur_K_FACTOR = K_FACTOR * (average_karma / 1000)
@@ -315,7 +324,7 @@ def update_karma_multi_team(teams, match_date):
         for j in range(i):
             team_j = teams[j]
             total_players = len(team_i) + len(team_j)
-            expected_win = expected_score(team_karmas[i], team_karmas[j])
+            expected_win = expected_score_i(team_karmas[i], team_karmas[j], total_karma)
             # Team i lost this matchup (result = 0)
             team_changes[i] += cur_K_FACTOR * (0 - expected_win)
 
@@ -323,7 +332,7 @@ def update_karma_multi_team(teams, match_date):
         for j in range(i + 1, len(teams)):
             team_j = teams[j]
             total_players = len(team_i) + len(team_j)
-            expected_win = expected_score(team_karmas[i], team_karmas[j])
+            expected_win = expected_score_i(team_karmas[i], team_karmas[j], total_karma)
             # Team i won this matchup (result = 1)
             team_changes[i] += cur_K_FACTOR * (1 - expected_win)
 
@@ -347,7 +356,7 @@ def update_karma_multi_team(teams, match_date):
             player_karma[player] += actual_change
             if player_karma[player] < 1:
                 player_karma[player] = 1
-            player_history[player].append((match_date, player_karma[player]))
+            player_history[player].append((match_date, player_karma[player], current_match))
             player_cnt[player] = matches_played + 1
 
 def create_peak_leaderboard(peak_output_file="peak_karma.csv",
@@ -362,13 +371,13 @@ def create_peak_leaderboard(peak_output_file="peak_karma.csv",
     with open(peak_output_file, 'w', newline='', encoding='utf-8') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=['rank', 'player', 'peak_karma', 'date'])
         writer.writeheader()
-        for rank, (player, (date, karma)) in enumerate(
+        for rank, (player, (date, karma, _)) in enumerate(
                 sorted(peaks.items(), key=lambda x: x[1][1], reverse=True), start=1):
             writer.writerow({'rank': rank, 'player': player,
                              'peak_karma': round(karma, 2), 'date': date})
 
     # Images (same style as the main leaderboard)
-    peak_values = {player: karma for player, (date, karma) in peaks.items()}
+    peak_values = {player: karma for player, (date, karma, _) in peaks.items()}
     create_leaderboard_images(peak_values, output_dir=output_dir,
                               value_label="PEAK KARMA", file_prefix="peak_part")
 
@@ -382,11 +391,12 @@ def process_matches(input_file, history_output_file, final_karma_output_file):
         matches = sorted(reader, key=lambda row: datetime.strptime(row['date'], "%Y-%m-%d"))
 
         # Initialize player_cnt at the function level so update_karma can access it
-        global player_cnt
+        global player_cnt, current_match
         player_cnt = defaultdict(int)
 
         print("History of past matches:")
-        for row in matches:
+        # sorted() is stable, so matches on the same day keep their row order
+        for current_match, row in enumerate(matches, start=1):
             date = row['date']
             result = float(row['result'])
 
@@ -446,13 +456,13 @@ def process_matches(input_file, history_output_file, final_karma_output_file):
 
     # Write karma history
     with open(history_output_file, 'w', newline='') as csvfile:
-        fieldnames = ['player', 'date', 'karma']
+        fieldnames = ['player', 'date', 'match', 'karma']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
         writer.writeheader()
         for player, history in player_history.items():
-            for date, karma in history:
-                writer.writerow({'player': player, 'date': date, 'karma': round(karma, 2)})
+            for date, karma, match in history:
+                writer.writerow({'player': player, 'date': date, 'match': match, 'karma': round(karma, 2)})
 
     # Write final karma leaderboard
     with open("final_u.csv", 'w', newline='') as csvfile:
@@ -563,31 +573,31 @@ def _place_legend(n_players):
 def graph_func(min_matches=0):
     # Load data
     df = pd.read_csv('karma_history.csv', parse_dates=['date'])
-    df = df.sort_values(by='date')
+    df = df.sort_values(by='match')
 
     # Only keep players who played more than X matches
     match_counts = df['player'].value_counts()
     eligible_players = match_counts[match_counts >= min_matches].index
     df = df[df['player'].isin(eligible_players)]
 
-    # Map each unique date to an index for x-axis
-    unique_dates = df['date'].unique()
-    date_index_map = {date: i for i, date in enumerate(unique_dates)}
-    df['x'] = df['date'].map(date_index_map)
+    # Map each match to an index for x-axis (same-day matches get separate points)
+    unique_matches = df['match'].unique()
+    match_index_map = {match: i for i, match in enumerate(unique_matches)}
+    df['x'] = df['match'].map(match_index_map)
 
-    # Calculate mean Karma for each date
+    # Calculate mean Karma for each match
     mean_karma_by_date = []
     extra_karma_by_date = []
     mean_x = []
 
-    for date in unique_dates:
-        players_up_to_date = df[df['date'] <= date]['player'].unique()
+    for match in unique_matches:
+        players_up_to_date = df[df['match'] <= match]['player'].unique()
 
         latest_karmas = []
         for player in players_up_to_date:
             player_data = df[
                 (df['player'] == player) &
-                (df['date'] <= date)
+                (df['match'] <= match)
             ]
             if not player_data.empty:
                 latest_karmas.append(player_data.iloc[-1]['karma'])
@@ -599,7 +609,7 @@ def graph_func(min_matches=0):
             extra_karma_by_date.append(
                 sum(latest_karmas) - 1000 * len(latest_karmas)
             )
-            mean_x.append(date_index_map[date])
+            mean_x.append(match_index_map[match])
 
     # Prepare colors and markers
     colors = plt.cm.tab20.colors
@@ -668,25 +678,26 @@ def graph_func(min_matches=0):
 def graph_last_match_players():
     # Load data
     df = pd.read_csv('karma_history.csv', parse_dates=['date'])
-    df = df.sort_values(by='date')
+    df = df.sort_values(by='match')
 
-    # Find the last match date
-    last_match_date = df['date'].max()
+    # Find the last match
+    last_match = df['match'].max()
 
     # Get players who played in the last match
-    last_match_players = df[df['date'] == last_match_date]['player'].unique()
+    last_match_players = df[df['match'] == last_match]['player'].unique()
 
     # Filter dataframe to only include those players
     df = df[df['player'].isin(last_match_players)]
 
-    # Map each unique date to an index for x-axis
-    unique_dates = df['date'].unique()
-    date_index_map = {date: i for i, date in enumerate(unique_dates)}
-    df['x'] = df['date'].map(date_index_map)
+    # Map each match to an index for x-axis (same-day matches get separate points)
+    unique_matches = df['match'].unique()
+    match_index_map = {match: i for i, match in enumerate(unique_matches)}
+    df['x'] = df['match'].map(match_index_map)
+    match_dates = df.drop_duplicates('match')['date']
 
-    # Calculate mean Karma for each date
-    mean_karma = df.groupby('date')['karma'].mean()
-    mean_x = [date_index_map[date] for date in mean_karma.index]
+    # Calculate mean Karma for each match
+    mean_karma = df.groupby('match')['karma'].mean()
+    mean_x = [match_index_map[match] for match in mean_karma.index]
 
     # Prepare colors and markers
     colors = plt.cm.tab20.colors  # 20 distinct colors
@@ -711,7 +722,7 @@ def graph_last_match_players():
     # plt.plot(mean_x, mean_karma.values, label='Mean Karma', color='black', linewidth=2.5, linestyle='--', zorder=10)
 
     # X-axis labels as dates
-    plt.xticks(range(len(unique_dates)), [d.strftime('%Y-%m-%d') for d in unique_dates], rotation=45)
+    plt.xticks(range(len(unique_matches)), [d.strftime('%Y-%m-%d') for d in match_dates], rotation=45)
 
     #plt.xlabel('Match Update (by date)')
     plt.ylabel('Karma')
@@ -731,6 +742,95 @@ def graph_last_match_players():
     plt.tight_layout()
 
     plt.savefig('karma_evolution_last_match.png', bbox_inches='tight', pad_inches=0.3)
+
+def graph_match_sizes(input_file):
+    # Total player count of every match, in the same order the matches are processed
+    with open(input_file, newline='') as csvfile:
+        matches = sorted(csv.DictReader(csvfile), key=lambda row: datetime.strptime(row['date'], "%Y-%m-%d"))
+
+    sizes = [
+        sum(len([p for p in team.split(',') if p.strip()]) for team in row['teams'].split('|'))
+        for row in matches
+    ]
+    ranked = [float(row['result']) != -1 for row in matches]
+    x = range(1, len(matches) + 1)
+
+    plt.figure(figsize=(14, 7))
+    plt.bar([i for i, r in zip(x, ranked) if r], [s for s, r in zip(sizes, ranked) if r],
+            color='tab:blue', label='Ranked')
+    plt.bar([i for i, r in zip(x, ranked) if not r], [s for s, r in zip(sizes, ranked) if not r],
+            color='tab:gray', label='Unranked')
+
+    plt.xlabel('Match')
+    plt.ylabel('Players')
+    plt.title('Match Size (Total Player Count)')
+    plt.gca().yaxis.get_major_locator().set_params(integer=True)
+    plt.legend()
+    plt.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+
+    plt.savefig('match_size.png', bbox_inches='tight', pad_inches=0.2)
+
+    # Biggest match of each month, so lots of small games don't hide how big games got
+    monthly_max = {}
+    for row, size in zip(matches, sizes):
+        month = row['date'][:7]
+        monthly_max[month] = max(monthly_max.get(month, 0), size)
+
+    # Include months with no matches as empty bars so gaps are visible
+    months = [p.strftime('%Y-%m') for p in pd.period_range(min(monthly_max), max(monthly_max), freq='M')]
+    month_sizes = [monthly_max.get(month, 0) for month in months]
+    plt.figure(figsize=(14, 7))
+    bars = plt.bar(range(len(months)), month_sizes, color='tab:blue')
+    plt.bar_label(bars, labels=[str(s) if s else '' for s in month_sizes])
+
+    plt.xticks(range(len(months)), months, rotation=45)
+    plt.ylabel('Players')
+    plt.title('Biggest Match per Month (Total Player Count)')
+    plt.gca().yaxis.get_major_locator().set_params(integer=True)
+    plt.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+
+    plt.savefig('match_size_monthly_max.png', bbox_inches='tight', pad_inches=0.2)
+
+    # Sum of all match sizes in each month (a player counts once per match they played)
+    monthly_total = defaultdict(int)
+    for row, size in zip(matches, sizes):
+        monthly_total[row['date'][:7]] += size
+    month_totals = [monthly_total.get(month, 0) for month in months]
+
+    plt.figure(figsize=(14, 7))
+    bars = plt.bar(range(len(months)), month_totals, color='tab:blue')
+    plt.bar_label(bars, labels=[str(s) if s else '' for s in month_totals])
+
+    plt.xticks(range(len(months)), months, rotation=45)
+    plt.ylabel('Players')
+    plt.title('Total Player Count per Month (All Matches Combined)')
+    plt.gca().yaxis.get_major_locator().set_params(integer=True)
+    plt.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+
+    plt.savefig('match_size_monthly_total.png', bbox_inches='tight', pad_inches=0.2)
+
+    # Distinct players who played at least one match in each month
+    monthly_players = defaultdict(set)
+    for row in matches:
+        for team in row['teams'].split('|'):
+            monthly_players[row['date'][:7]].update(p.strip() for p in team.split(',') if p.strip())
+    month_uniques = [len(monthly_players.get(month, ())) for month in months]
+
+    plt.figure(figsize=(14, 7))
+    bars = plt.bar(range(len(months)), month_uniques, color='tab:blue')
+    plt.bar_label(bars, labels=[str(s) if s else '' for s in month_uniques])
+
+    plt.xticks(range(len(months)), months, rotation=45)
+    plt.ylabel('Players')
+    plt.title('Unique Players per Month')
+    plt.gca().yaxis.get_major_locator().set_params(integer=True)
+    plt.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+
+    plt.savefig('unique_players_monthly.png', bbox_inches='tight', pad_inches=0.2)
 
 def sort_maps_by_selected_players(map_stats_file, players_file, maps_file):
     # Load selected players into a set
@@ -787,6 +887,8 @@ def get_potential_changes(teams):
     """
     n_teams = len(teams)
     team_karmas = [sum(player_karma.get(p, INITIAL_KARMA) for p in team) for team in teams]
+    total_karma = sum(team_karmas)
+
 
     #average_karma = sum(team_karmas) / (len(teams))
     #cur_K_FACTOR = K_FACTOR * (average_karma / 1000)
@@ -803,7 +905,7 @@ def get_potential_changes(teams):
                 if i == j: continue
                 if rank == opponent_rank:
                     opponent_rank += 1
-                exp = expected_score(team_karmas[i], team_karmas[j])
+                exp = expected_score_i(team_karmas[i], team_karmas[j], total_karma)
                 # If i's rank < j's rank, i won.
                 # Here we simulate i being at 'rank' and j being at all other spots
                 # To simplify for the user, we assume other teams maintain their relative order
@@ -875,7 +977,7 @@ def generate_karma_changes_based_on_ranking(groups_file):
         for val in outcomes:
             row += f" | {val:>+5}"
         print(row)
-
+    '''
     print("\nor\n")
 
     total = 0
@@ -897,10 +999,12 @@ def generate_karma_changes_based_on_ranking(groups_file):
         total += 1 / karma
         player_cnt_inner += len(team)
 
+    
     for team, karma in sorted_teams:
         label = f"{' & '.join(team)} [{int(karma)}]"
         row = f"{label:<{max_label_len}}   hearts/minute: {player_cnt_inner * (1 / karma) / total}"
         print(row)
+    '''
 
 def write_match_counts(input_file, output_file="match_counts.csv"):
     counts = defaultdict(int)
@@ -970,6 +1074,8 @@ if __name__ == "__main__":
     graph_func()
 
     graph_last_match_players()
+
+    graph_match_sizes(input_file)
 
     write_match_counts(input_file)
     #print("")
