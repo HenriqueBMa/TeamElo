@@ -14,7 +14,7 @@ import itertools
 # KARMA system constants
 INITIAL_KARMA = 1000
 K_FACTOR = 64
-process_only = {"FFAx", "TWO", "1V1x"}
+process_only = {"FFA", "TWOx", "1V1x"}
 WIN_LOSS_DIF_KARMA_WEIGHT = 40
 
 # Store player data
@@ -72,7 +72,7 @@ def expected_score(karma1, karma2):
     return expected_score_i(karma1, karma2, karma1+karma2)
 
 def expected_score_i(karma1, karma2, totalKarma):
-    pp = 0.0854
+    pp = 1
     #pp = 1
     totalKarma = pp*(totalKarma) + (1-pp)*(karma1+karma2)
     dif_sensitivity = (totalKarma/1000/2)*400 # how many average players we have per team * 400
