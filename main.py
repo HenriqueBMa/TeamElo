@@ -14,7 +14,7 @@ import itertools
 # KARMA system constants
 INITIAL_KARMA = 1000
 K_FACTOR = 64
-process_only = {"FFA", "TWOx", "1V1x"}
+process_only = {"FFAx", "TWOx", "1V1"}
 WIN_LOSS_DIF_KARMA_WEIGHT = 40
 
 # Store player data
